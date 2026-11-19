@@ -90,11 +90,13 @@ namespace MSFS2024Start
 
     sealed class MainForm : Form
     {
-        const string IntroText = "Takes the place of Start and Quit to Desktop on the MSFS 2024 start screen.";
+        const string IntroText = "Start and Quit are for the opening screen. Start Flight and Ready to Fly continue a Free Flight.";
 
         readonly Label introLabel;
         readonly Label statusLabel;
         readonly Button startButton;
+        readonly Button flightButton;
+        readonly Button readyButton;
         readonly Button quitButton;
         readonly CheckBox hookBox;
         readonly LinkLabel alignLink;
@@ -120,7 +122,7 @@ namespace MSFS2024Start
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.Manual;
-            ClientSize = new Size(560, 312);
+            ClientSize = new Size(640, 308);
             BackColor = Color.FromArgb(22, 24, 28);
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 10f);
@@ -131,16 +133,24 @@ namespace MSFS2024Start
             introLabel.Text = IntroText;
             introLabel.ForeColor = Color.FromArgb(176, 184, 196);
             introLabel.Font = new Font("Segoe UI", 9.5f);
-            introLabel.SetBounds(20, 16, 520, 40);
+            introLabel.SetBounds(20, 14, 600, 40);
 
             statusLabel = new Label();
             statusLabel.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
             statusLabel.ForeColor = Color.White;
-            statusLabel.SetBounds(20, 58, 520, 36);
+            statusLabel.SetBounds(20, 54, 600, 32);
 
-            startButton = MakeButton("Start", 20, 102, 520, 84, 20f, true);
-            quitButton = MakeButton("Quit to Desktop", 20, 198, 520, 56, 13f, false);
+            startButton = MakeButton("Start", 20, 94, 292, 70, 16f, true);
+            flightButton = MakeButton("Start Flight", 328, 94, 292, 70, 15f, true);
+            readyButton = MakeButton("Ready to Fly", 20, 174, 292, 70, 14f, false);
+            quitButton = MakeButton("Quit to Desktop", 328, 174, 292, 70, 13f, false);
+            readyButton.BackColor = Color.FromArgb(0, 138, 96);
+            readyButton.FlatAppearance.BorderSize = 0;
+            readyButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(16, 166, 118);
+            readyButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(0, 110, 76);
             startButton.Click += OnStartClicked;
+            flightButton.Click += OnFlightClicked;
+            readyButton.Click += OnReadyClicked;
             quitButton.Click += OnQuitClicked;
             AcceptButton = startButton;
 
@@ -149,7 +159,7 @@ namespace MSFS2024Start
             hookBox.ForeColor = Color.FromArgb(200, 206, 214);
             hookBox.BackColor = BackColor;
             hookBox.Font = new Font("Segoe UI", 9f);
-            hookBox.SetBounds(20, 270, 300, 28);
+            hookBox.SetBounds(20, 258, 320, 28);
             hookBox.CheckedChanged += OnHookChanged;
 
             alignLink = new LinkLabel();
@@ -160,13 +170,15 @@ namespace MSFS2024Start
             alignLink.VisitedLinkColor = alignLink.LinkColor;
             alignLink.LinkBehavior = LinkBehavior.HoverUnderline;
             alignLink.BackColor = BackColor;
-            alignLink.SetBounds(360, 274, 180, 22);
+            alignLink.SetBounds(430, 262, 190, 22);
             alignLink.TextAlign = ContentAlignment.MiddleRight;
             alignLink.Click += OnAlignClicked;
 
             Controls.Add(introLabel);
             Controls.Add(statusLabel);
             Controls.Add(startButton);
+            Controls.Add(flightButton);
+            Controls.Add(readyButton);
             Controls.Add(quitButton);
             Controls.Add(hookBox);
             Controls.Add(alignLink);
@@ -177,6 +189,8 @@ namespace MSFS2024Start
             tray.Visible = true;
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("Show", null, delegate { ShowFromTray(); });
+            menu.Items.Add("Start Flight", null, delegate { OnFlightClicked(this, EventArgs.Empty); });
+            menu.Items.Add("Ready to Fly", null, delegate { OnReadyClicked(this, EventArgs.Empty); });
             menu.Items.Add("Quit to Desktop", null, delegate { OnQuitClicked(this, EventArgs.Empty); });
             menu.Items.Add("Exit", null, delegate { ExitHelper(); });
             tray.ContextMenuStrip = menu;
@@ -332,7 +346,7 @@ namespace MSFS2024Start
         void SetIdleStatus()
         {
             if (SimScreen.IsRunning())
-                SetStatus("Ready when the start screen is up.", StatusKind.Normal, 0);
+                SetStatus("Choose the button for the screen you are on.", StatusKind.Normal, 0);
             else
                 SetStatus("Waiting for Microsoft Flight Simulator 2024…", StatusKind.Normal, 0);
         }
@@ -342,6 +356,20 @@ namespace MSFS2024Start
             if (busy || aligning)
                 return;
             RunAction(delegate { PerformStart(); });
+        }
+
+        void OnFlightClicked(object sender, EventArgs e)
+        {
+            if (busy || aligning)
+                return;
+            RunAction(delegate { PerformStartFlight(); });
+        }
+
+        void OnReadyClicked(object sender, EventArgs e)
+        {
+            if (busy || aligning)
+                return;
+            RunAction(delegate { PerformReadyToFly(); });
         }
 
         void OnQuitClicked(object sender, EventArgs e)
@@ -399,6 +427,58 @@ namespace MSFS2024Start
             }
 
             SetStatus("The Start button isn't on screen yet.", StatusKind.Warn, 8);
+            ShowAgain();
+        }
+
+        void PerformStartFlight()
+        {
+            SetStatus("Sending Ctrl+Enter…", StatusKind.Normal, 30);
+            IntPtr hwnd = RequireSim();
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            PrepareSim(hwnd);
+            SimScreen.Focus(hwnd);
+            Thread.Sleep(160);
+            SimScreen.TapCtrlEnter();
+            Log.Write("Sent Ctrl+Enter for Start Flight");
+            SetStatus("Start Flight sent (Ctrl+Enter).", StatusKind.Ok, 8);
+            ShowAgain();
+        }
+
+        void PerformReadyToFly()
+        {
+            SetStatus("Looking for Ready to Fly…", StatusKind.Normal, 30);
+            IntPtr hwnd = RequireSim();
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            PrepareSim(hwnd);
+            Rectangle window = SimScreen.ClientBounds(hwnd);
+            ScreenLine ready = FindReady(SimScreen.Read(hwnd), window);
+            if (ready == null)
+            {
+                SetStatus("Ready to Fly isn't on screen yet.", StatusKind.Warn, 8);
+                ShowAgain();
+                return;
+            }
+
+            Point point = Center(ready.Bounds);
+            Log.Write("Click Ready to Fly at " + point.X + "," + point.Y + " text=" + ready.Text);
+            SimScreen.Click(point);
+            Thread.Sleep(500);
+            if (FindReady(SimScreen.Read(hwnd), SimScreen.ClientBounds(hwnd)) != null)
+            {
+                Log.Write("Ready to Fly is still up. Sending a direct click.");
+                SimScreen.Focus(hwnd);
+                SimScreen.ClickWindow(hwnd, point);
+                Thread.Sleep(400);
+            }
+
+            if (FindReady(SimScreen.Read(hwnd), SimScreen.ClientBounds(hwnd)) != null)
+                SetStatus("Ready to Fly is still there. Click it again.", StatusKind.Warn, 10);
+            else
+                SetStatus("Ready to Fly pressed.", StatusKind.Ok, 8);
             ShowAgain();
         }
 
@@ -762,28 +842,58 @@ namespace MSFS2024Start
             return best;
         }
 
+        static ScreenLine FindReady(List<ScreenLine> lines, Rectangle window)
+        {
+            ScreenLine best = null;
+            foreach (ScreenLine line in lines)
+            {
+                Rectangle phrase = PhraseBounds(line, "Ready", "Fly", 3);
+                if (phrase.Width <= 0)
+                    continue;
+                int cx = phrase.Left + phrase.Width / 2;
+                int cy = phrase.Top + phrase.Height / 2;
+                if (cy < window.Top + (int)(window.Height * 0.55))
+                    continue;
+                if (cx < window.Left + (int)(window.Width * 0.40))
+                    continue;
+                if (best == null || phrase.Left > best.Bounds.Left)
+                {
+                    best = new ScreenLine();
+                    best.Text = line.Text;
+                    best.Bounds = phrase;
+                    best.Words = line.Words;
+                }
+            }
+            return best;
+        }
+
         static Rectangle QuitPhraseBounds(ScreenLine line)
         {
-            int quitIndex = -1;
-            int desktopIndex = -1;
+            return PhraseBounds(line, "Quit", "Desktop", 3);
+        }
+
+        static Rectangle PhraseBounds(ScreenLine line, string firstWord, string lastWord, int maxGap)
+        {
+            int firstIndex = -1;
+            int lastIndex = -1;
             for (int i = 0; i < line.Words.Count; i++)
             {
-                if (quitIndex < 0 && TextEquals(line.Words[i].Text, "Quit"))
-                    quitIndex = i;
-                else if (quitIndex >= 0 && TextEquals(line.Words[i].Text, "Desktop"))
+                if (firstIndex < 0 && TextEquals(line.Words[i].Text, firstWord))
+                    firstIndex = i;
+                else if (firstIndex >= 0 && TextEquals(line.Words[i].Text, lastWord))
                 {
-                    desktopIndex = i;
+                    lastIndex = i;
                     break;
                 }
             }
-            if (quitIndex < 0 || desktopIndex < 0 || desktopIndex - quitIndex > 3)
+            if (firstIndex < 0 || lastIndex < 0 || lastIndex - firstIndex > maxGap)
                 return Rectangle.Empty;
 
             int left = int.MaxValue;
             int top = int.MaxValue;
             int right = int.MinValue;
             int bottom = int.MinValue;
-            for (int i = quitIndex; i <= desktopIndex; i++)
+            for (int i = firstIndex; i <= lastIndex; i++)
             {
                 Rectangle word = line.Words[i].Bounds;
                 left = Math.Min(left, word.Left);
@@ -819,7 +929,14 @@ namespace MSFS2024Start
 
         static bool TextEquals(string left, string right)
         {
-            return string.Equals((left ?? "").Trim(), right, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(CleanWord(left), right, StringComparison.OrdinalIgnoreCase);
+        }
+
+        static string CleanWord(string value)
+        {
+            if (value == null)
+                return "";
+            return value.Trim().Trim('.', ',', '!', '?', ':', ';', '"', '\'');
         }
 
         static Point Center(Rectangle bounds)
@@ -846,6 +963,8 @@ namespace MSFS2024Start
                 return;
             bool running = SimScreen.IsRunning();
             startButton.Enabled = running && !busy && !aligning;
+            flightButton.Enabled = running && !busy && !aligning;
+            readyButton.Enabled = running && !busy && !aligning;
             quitButton.Enabled = running && !busy && !aligning;
             alignLink.Enabled = running && !busy && !aligning;
             hookBox.Enabled = !busy && !aligning;
@@ -1159,6 +1278,11 @@ namespace MSFS2024Start
         public static void TapEnter()
         {
             Native.TapVirtualKey(0x0D);
+        }
+
+        public static void TapCtrlEnter()
+        {
+            Native.TapChord(0x11, 0x0D);
         }
 
         static void ToAbsolute(Point screen, out int ax, out int ay)
@@ -1628,6 +1752,17 @@ namespace MSFS2024Start
             keybd_event(virtualKey, 0, 0, UIntPtr.Zero);
             Thread.Sleep(80);
             keybd_event(virtualKey, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        }
+
+        public static void TapChord(byte modifier, byte key)
+        {
+            keybd_event(modifier, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(40);
+            keybd_event(key, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(70);
+            keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(30);
+            keybd_event(modifier, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
         }
     }
 }
