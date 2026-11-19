@@ -478,16 +478,32 @@ namespace MSFS2024Start
 
             Point point = Center(ready.Bounds);
             Log.Write("Click Ready to Fly at " + point.X + "," + point.Y + " text=" + ready.Text);
-            SimScreen.Click(point);
-            Thread.Sleep(500);
-            if (FindReady(SimScreen.Read(hwnd), SimScreen.ClientBounds(hwnd)) != null)
+            SimScreen.Focus(hwnd);
+            SimScreen.PressButton(point);
+            Thread.Sleep(700);
+            if (FindReady(SimScreen.Read(hwnd), SimScreen.ClientBounds(hwnd)) == null)
             {
-                Log.Write("Ready to Fly is still up. Sending a direct click.");
-                SimScreen.Focus(hwnd);
-                SimScreen.ClickWindow(hwnd, point);
-                Thread.Sleep(400);
+                SetStatus("Ready to Fly pressed.", StatusKind.Ok, 8);
+                ShowAgain();
+                return;
             }
 
+            Log.Write("Ready to Fly is still up. Pressing it again.");
+            SimScreen.Focus(hwnd);
+            SimScreen.PressButton(point);
+            Thread.Sleep(500);
+            if (FindReady(SimScreen.Read(hwnd), SimScreen.ClientBounds(hwnd)) == null)
+            {
+                SetStatus("Ready to Fly pressed.", StatusKind.Ok, 8);
+                ShowAgain();
+                return;
+            }
+
+            Log.Write("Ready to Fly is still up. Pressing Enter.");
+            SimScreen.Focus(hwnd);
+            Thread.Sleep(120);
+            SimScreen.TapEnter();
+            Thread.Sleep(600);
             if (FindReady(SimScreen.Read(hwnd), SimScreen.ClientBounds(hwnd)) != null)
                 SetStatus("Ready to Fly is still there. Click it again.", StatusKind.Warn, 10);
             else
@@ -555,10 +571,8 @@ namespace MSFS2024Start
 
         void FinishStart()
         {
-            SetStatus("Start pressed.", StatusKind.Ok, 8);
+            SetStatus("Start pressed. This window stays open.", StatusKind.Ok, 8);
             ShowAgain();
-            Thread.Sleep(1200);
-            HideAgain();
         }
 
         bool ResolveStart(IntPtr hwnd, Point point)
@@ -1398,6 +1412,21 @@ namespace MSFS2024Start
             Native.SendMouse(move | Native.MOUSEEVENTF_LEFTDOWN, ax, ay);
             Thread.Sleep(200);
             Native.SendMouse(move | Native.MOUSEEVENTF_LEFTUP, ax, ay);
+        }
+
+        public static void PressButton(Point screen)
+        {
+            int ax;
+            int ay;
+            ToAbsolute(screen, out ax, out ay);
+            uint move = Native.MOUSEEVENTF_MOVE | Native.MOUSEEVENTF_ABSOLUTE | Native.MOUSEEVENTF_VIRTUALDESK;
+            Native.SendMouse(Native.MOUSEEVENTF_LEFTUP, 0, 0);
+            Native.SendMouse(move, ax, ay);
+            Native.SetCursorPos(screen.X, screen.Y);
+            Thread.Sleep(300);
+            Native.SendMouse(Native.MOUSEEVENTF_LEFTDOWN, 0, 0);
+            Thread.Sleep(400);
+            Native.SendMouse(Native.MOUSEEVENTF_LEFTUP, 0, 0);
         }
 
         public static void ClickWindow(IntPtr hwnd, Point screen)
