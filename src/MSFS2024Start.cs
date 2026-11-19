@@ -385,19 +385,11 @@ namespace MSFS2024Start
             ScreenLine start = FindStart(lines, SimScreen.ClientBounds(hwnd));
             if (start != null)
             {
-                Log.Write("Click Start at " + start.Bounds.X + "," + start.Bounds.Y + " text=" + start.Text);
-                SimScreen.Click(Center(start.Bounds));
-                Thread.Sleep(700);
-                List<ScreenLine> after = SimScreen.Read(hwnd);
-                bool stillThere = FindStart(after, SimScreen.ClientBounds(hwnd)) != null;
-                SetStatus(stillThere ? "The Start button is still there. Click Start again." : "Start pressed.", stillThere ? StatusKind.Warn : StatusKind.Ok, 8);
-                ShowAgain();
-                if (!stillThere)
-                {
-                    Thread.Sleep(1200);
-                    HideAgain();
-                }
-                return;
+                Point point = Center(start.Bounds);
+                Log.Write("Click Start at " + point.X + "," + point.Y + " text=" + start.Text);
+                SimScreen.Click(point);
+                if (ResolveStart(hwnd, point))
+                    return;
             }
 
             if (settings.HasStart)
@@ -466,6 +458,102 @@ namespace MSFS2024Start
 
             SetStatus("Quit to Desktop isn't on screen yet.", StatusKind.Warn, 8);
             ShowAgain();
+        }
+
+        void FinishStart()
+        {
+            SetStatus("Start pressed.", StatusKind.Ok, 8);
+            ShowAgain();
+            Thread.Sleep(1200);
+            HideAgain();
+        }
+
+        bool ResolveStart(IntPtr hwnd, Point point)
+        {
+            StartResult first = WaitForMainMenu(hwnd);
+            if (first == StartResult.InMenu)
+            {
+                FinishStart();
+                return true;
+            }
+            if (first != StartResult.StillThere)
+            {
+                SetStatus("If the start screen is still up, click Start again.", StatusKind.Warn, 12);
+                ShowAgain();
+                return true;
+            }
+
+            Log.Write("Start is still up. Sending a direct click.");
+            SimScreen.Focus(hwnd);
+            SimScreen.ClickWindow(hwnd, point);
+            if (WaitForMainMenu(hwnd) == StartResult.InMenu)
+            {
+                FinishStart();
+                return true;
+            }
+
+            Log.Write("Start is still up. Pressing Enter.");
+            SimScreen.Focus(hwnd);
+            SimScreen.TapEnter();
+            if (WaitForMainMenu(hwnd) == StartResult.InMenu)
+            {
+                FinishStart();
+                return true;
+            }
+
+            SetStatus("The Start button is still there. Click Start again.", StatusKind.Warn, 12);
+            ShowAgain();
+            return true;
+        }
+
+        StartResult WaitForMainMenu(IntPtr hwnd)
+        {
+            DateTime until = DateTime.UtcNow.AddSeconds(2.5);
+            int stillCount = 0;
+            while (DateTime.UtcNow < until)
+            {
+                Thread.Sleep(400);
+                StartResult now = InspectScreen(hwnd);
+                if (now == StartResult.InMenu)
+                    return now;
+                if (now == StartResult.StillThere)
+                {
+                    stillCount++;
+                    if (stillCount >= 2)
+                        return StartResult.StillThere;
+                }
+                else
+                {
+                    stillCount = 0;
+                }
+            }
+            return StartResult.Unknown;
+        }
+
+        StartResult InspectScreen(IntPtr hwnd)
+        {
+            Rectangle window = SimScreen.ClientBounds(hwnd);
+            List<ScreenLine> lines = SimScreen.Read(hwnd);
+            bool startVisible = FindStart(lines, window) != null;
+            bool mainMenu = LinesContain(lines, "Free Flight")
+                || LinesContain(lines, "Activities")
+                || LinesContain(lines, "Career");
+            Log.Write("After Start: startVisible=" + startVisible + " mainMenu=" + mainMenu);
+            if (startVisible)
+                return StartResult.StillThere;
+            if (mainMenu)
+                return StartResult.InMenu;
+            return StartResult.Unknown;
+        }
+
+        static bool LinesContain(List<ScreenLine> lines, string phrase)
+        {
+            foreach (ScreenLine line in lines)
+            {
+                if (line.Text != null && line.Text.IndexOf(phrase, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
         }
 
         void ClickSaved(IntPtr hwnd, double nx, double ny, string name)
@@ -840,6 +928,13 @@ namespace MSFS2024Start
         Warn
     }
 
+    enum StartResult
+    {
+        StillThere,
+        InMenu,
+        Unknown
+    }
+
     sealed class ScreenWord
     {
         public string Text;
@@ -1032,15 +1127,52 @@ namespace MSFS2024Start
 
         public static void Click(Point screen)
         {
-            Native.POINT previous;
-            Native.GetCursorPos(out previous);
+            int ax;
+            int ay;
+            ToAbsolute(screen, out ax, out ay);
+            uint move = Native.MOUSEEVENTF_MOVE | Native.MOUSEEVENTF_ABSOLUTE | Native.MOUSEEVENTF_VIRTUALDESK;
+            Native.SendMouse(move, ax, ay);
             Native.SetCursorPos(screen.X, screen.Y);
-            Thread.Sleep(60);
-            Native.SendMouse(Native.MOUSEEVENTF_LEFTDOWN);
-            Thread.Sleep(40);
-            Native.SendMouse(Native.MOUSEEVENTF_LEFTUP);
-            Thread.Sleep(30);
-            Native.SetCursorPos(previous.X, previous.Y);
+            Thread.Sleep(220);
+            Native.SendMouse(move | Native.MOUSEEVENTF_LEFTDOWN, ax, ay);
+            Thread.Sleep(200);
+            Native.SendMouse(move | Native.MOUSEEVENTF_LEFTUP, ax, ay);
+        }
+
+        public static void ClickWindow(IntPtr hwnd, Point screen)
+        {
+            Native.POINT origin;
+            origin.X = 0;
+            origin.Y = 0;
+            if (!Native.ClientToScreen(hwnd, ref origin))
+                return;
+            int cx = screen.X - origin.X;
+            int cy = screen.Y - origin.Y;
+            IntPtr packed = (IntPtr)((cy << 16) | (cx & 0xFFFF));
+            Native.SendMessage(hwnd, Native.WM_MOUSEMOVE, IntPtr.Zero, packed);
+            Thread.Sleep(80);
+            Native.SendMessage(hwnd, Native.WM_LBUTTONDOWN, (IntPtr)0x0001, packed);
+            Thread.Sleep(160);
+            Native.SendMessage(hwnd, Native.WM_LBUTTONUP, IntPtr.Zero, packed);
+        }
+
+        public static void TapEnter()
+        {
+            Native.TapVirtualKey(0x0D);
+        }
+
+        static void ToAbsolute(Point screen, out int ax, out int ay)
+        {
+            int left = Native.GetSystemMetrics(76);
+            int top = Native.GetSystemMetrics(77);
+            int width = Native.GetSystemMetrics(78);
+            int height = Native.GetSystemMetrics(79);
+            if (width < 2)
+                width = 2;
+            if (height < 2)
+                height = 2;
+            ax = (int)Math.Round((screen.X - left) * 65535.0 / (width - 1));
+            ay = (int)Math.Round((screen.Y - top) * 65535.0 / (height - 1));
         }
     }
 
@@ -1337,11 +1469,16 @@ namespace MSFS2024Start
     static class Native
     {
         public const int WH_MOUSE_LL = 14;
+        public const int WM_MOUSEMOVE = 0x0200;
         public const int WM_LBUTTONDOWN = 0x0201;
         public const int WM_LBUTTONUP = 0x0202;
         public const int SW_SHOW = 5;
+        public const uint MOUSEEVENTF_MOVE = 0x0001;
         public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        public const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
+        public const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
+        const uint KEYEVENTF_KEYUP = 0x0002;
         const uint INPUT_MOUSE = 0;
 
         public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -1432,6 +1569,15 @@ namespace MSFS2024Start
         [DllImport("user32.dll")]
         public static extern bool SetCursorPos(int x, int y);
 
+        [DllImport("user32.dll")]
+        public static extern int GetSystemMetrics(int nIndex);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
         [DllImport("user32.dll", SetLastError = true)]
         static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -1463,16 +1609,25 @@ namespace MSFS2024Start
             }
         }
 
-        public static void SendMouse(uint flags)
+        public static void SendMouse(uint flags, int dx, int dy)
         {
             INPUT input = new INPUT();
             input.type = INPUT_MOUSE;
+            input.mi.dx = dx;
+            input.mi.dy = dy;
             input.mi.dwFlags = flags;
             INPUT[] inputs = new INPUT[1];
             inputs[0] = input;
             uint sent = SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
             if (sent != 1)
                 Log.Write("Mouse click was not sent. Win32 error " + Marshal.GetLastWin32Error());
+        }
+
+        public static void TapVirtualKey(byte virtualKey)
+        {
+            keybd_event(virtualKey, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(80);
+            keybd_event(virtualKey, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
         }
     }
 }
