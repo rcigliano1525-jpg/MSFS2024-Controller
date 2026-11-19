@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Text;
@@ -94,10 +95,10 @@ namespace MSFS2024Start
 
         readonly Label introLabel;
         readonly Label statusLabel;
-        readonly Button startButton;
-        readonly Button flightButton;
-        readonly Button readyButton;
-        readonly Button quitButton;
+        readonly RoundButton startButton;
+        readonly RoundButton flightButton;
+        readonly RoundButton readyButton;
+        readonly RoundButton quitButton;
         readonly CheckBox hookBox;
         readonly LinkLabel alignLink;
         readonly NotifyIcon tray;
@@ -118,36 +119,33 @@ namespace MSFS2024Start
 
         public MainForm()
         {
-            Text = "MSFS 2024";
+            Text = "MSFS2024 Controller";
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.Manual;
-            ClientSize = new Size(640, 308);
-            BackColor = Color.FromArgb(22, 24, 28);
-            ForeColor = Color.White;
+            ClientSize = new Size(656, 328);
+            BackColor = Color.FromArgb(128, 132, 138);
+            DoubleBuffered = true;
+            ForeColor = Color.FromArgb(28, 30, 34);
             Font = new Font("Segoe UI", 10f);
             TopMost = true;
             Icon = MakeIcon();
 
             introLabel = new Label();
             introLabel.Text = IntroText;
-            introLabel.ForeColor = Color.FromArgb(176, 184, 196);
+            introLabel.ForeColor = Color.FromArgb(28, 30, 34);
             introLabel.Font = new Font("Segoe UI", 9.5f);
-            introLabel.SetBounds(20, 14, 600, 40);
+            introLabel.SetBounds(24, 16, 608, 40);
 
             statusLabel = new Label();
             statusLabel.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
-            statusLabel.ForeColor = Color.White;
-            statusLabel.SetBounds(20, 54, 600, 32);
+            statusLabel.ForeColor = Color.FromArgb(28, 30, 34);
+            statusLabel.SetBounds(24, 56, 608, 32);
 
-            startButton = MakeButton("Start", 20, 94, 292, 70, 16f, true);
-            flightButton = MakeButton("Start Flight", 328, 94, 292, 70, 15f, true);
-            readyButton = MakeButton("Ready to Fly", 20, 174, 292, 70, 14f, false);
-            quitButton = MakeButton("Quit to Desktop", 328, 174, 292, 70, 13f, false);
-            readyButton.BackColor = Color.FromArgb(0, 138, 96);
-            readyButton.FlatAppearance.BorderSize = 0;
-            readyButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(16, 166, 118);
-            readyButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(0, 110, 76);
+            startButton = MakeButton("Start", 24, 98, 296, 76, 16f, Color.FromArgb(0, 122, 204), Color.FromArgb(32, 152, 232), Color.FromArgb(0, 96, 168));
+            flightButton = MakeButton("Start Flight", 336, 98, 296, 76, 15f, Color.FromArgb(0, 122, 204), Color.FromArgb(32, 152, 232), Color.FromArgb(0, 96, 168));
+            readyButton = MakeButton("Ready to Fly", 24, 184, 296, 76, 14f, Color.FromArgb(0, 150, 108), Color.FromArgb(18, 176, 130), Color.FromArgb(0, 118, 84));
+            quitButton = MakeButton("Quit to Desktop", 336, 184, 296, 76, 13f, Color.FromArgb(54, 60, 72), Color.FromArgb(72, 80, 94), Color.FromArgb(38, 42, 52));
             startButton.Click += OnStartClicked;
             flightButton.Click += OnFlightClicked;
             readyButton.Click += OnReadyClicked;
@@ -156,10 +154,10 @@ namespace MSFS2024Start
 
             hookBox = new CheckBox();
             hookBox.Text = "Open when MSFS 2024 starts";
-            hookBox.ForeColor = Color.FromArgb(200, 206, 214);
+            hookBox.ForeColor = Color.FromArgb(28, 30, 34);
             hookBox.BackColor = BackColor;
             hookBox.Font = new Font("Segoe UI", 9f);
-            hookBox.SetBounds(20, 258, 320, 28);
+            hookBox.SetBounds(24, 274, 340, 28);
             hookBox.CheckedChanged += OnHookChanged;
 
             alignLink = new LinkLabel();
@@ -170,7 +168,7 @@ namespace MSFS2024Start
             alignLink.VisitedLinkColor = alignLink.LinkColor;
             alignLink.LinkBehavior = LinkBehavior.HoverUnderline;
             alignLink.BackColor = BackColor;
-            alignLink.SetBounds(430, 262, 190, 22);
+            alignLink.SetBounds(430, 278, 202, 22);
             alignLink.TextAlign = ContentAlignment.MiddleRight;
             alignLink.Click += OnAlignClicked;
 
@@ -208,6 +206,21 @@ namespace MSFS2024Start
             SetIdleStatus();
             ApplyStartupHook();
             KeyPreview = true;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            int caption = ColorRef(Color.Black);
+            int text = ColorRef(Color.White);
+            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_CAPTION_COLOR, ref caption, 4);
+            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_TEXT_COLOR, ref text, 4);
+            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_BORDER_COLOR, ref caption, 4);
+        }
+
+        static int ColorRef(Color color)
+        {
+            return color.R | (color.G << 8) | (color.B << 16);
         }
 
         protected override void OnShown(EventArgs e)
@@ -972,11 +985,11 @@ namespace MSFS2024Start
 
         void SetStatus(string text, StatusKind kind, int holdSeconds)
         {
-            Color color = Color.White;
+            Color color = Color.FromArgb(28, 30, 34);
             if (kind == StatusKind.Ok)
-                color = Color.FromArgb(126, 214, 168);
+                color = Color.FromArgb(0, 96, 64);
             else if (kind == StatusKind.Warn)
-                color = Color.FromArgb(255, 196, 120);
+                color = Color.FromArgb(140, 72, 0);
 
             Action apply = delegate
             {
@@ -994,49 +1007,178 @@ namespace MSFS2024Start
                 apply();
         }
 
-        static Button MakeButton(string text, int x, int y, int width, int height, float fontSize, bool primary)
+        static RoundButton MakeButton(string text, int x, int y, int width, int height, float fontSize, Color face, Color hover, Color pressed)
         {
-            Button button = new Button();
+            RoundButton button = new RoundButton();
             button.Text = text;
             button.SetBounds(x, y, width, height);
             button.Font = new Font("Segoe UI", fontSize, FontStyle.Bold);
-            button.FlatStyle = FlatStyle.Flat;
-            button.Cursor = Cursors.Hand;
-            button.UseVisualStyleBackColor = false;
-            if (primary)
-            {
-                button.BackColor = Color.FromArgb(0, 122, 204);
-                button.ForeColor = Color.White;
-                button.FlatAppearance.BorderSize = 0;
-                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(32, 150, 230);
-                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(0, 96, 168);
-            }
-            else
-            {
-                button.BackColor = Color.FromArgb(44, 48, 56);
-                button.ForeColor = Color.FromArgb(236, 238, 241);
-                button.FlatAppearance.BorderSize = 1;
-                button.FlatAppearance.BorderColor = Color.FromArgb(96, 104, 116);
-                button.FlatAppearance.MouseOverBackColor = Color.FromArgb(62, 68, 78);
-                button.FlatAppearance.MouseDownBackColor = Color.FromArgb(32, 36, 42);
-            }
+            button.FaceColor = face;
+            button.HoverColor = hover;
+            button.PressedColor = pressed;
+            button.ForeColor = Color.White;
             return button;
         }
 
         static Icon MakeIcon()
         {
-            Bitmap bmp = new Bitmap(32, 32);
-            using (Graphics g = Graphics.FromImage(bmp))
+            Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MSFS2024Start.controller.ico");
+            if (stream != null)
+                return new Icon(stream);
+            return SystemIcons.Application;
+        }
+    }
+
+    sealed class RoundButton : Control, IButtonControl
+    {
+        const int Radius = 16;
+        const int Shadow = 12;
+
+        bool hover;
+        bool pressed;
+        bool isDefault;
+
+        public Color FaceColor = Color.FromArgb(0, 122, 204);
+        public Color HoverColor = Color.FromArgb(32, 152, 232);
+        public Color PressedColor = Color.FromArgb(0, 96, 168);
+        public DialogResult DialogResult { get; set; }
+
+        public RoundButton()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Cursor = Cursors.Hand;
+            ForeColor = Color.White;
+            BackColor = Color.FromArgb(128, 132, 138);
+        }
+
+        public void NotifyDefault(bool value)
+        {
+            isDefault = value;
+            Invalidate();
+        }
+
+        public void PerformClick()
+        {
+            if (Enabled)
+                OnClick(EventArgs.Empty);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            hover = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            hover = false;
+            pressed = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
             {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.Clear(Color.Transparent);
-                using (SolidBrush brush = new SolidBrush(Color.FromArgb(0, 122, 204)))
-                    g.FillEllipse(brush, 1, 1, 30, 30);
-                using (Font font = new Font("Segoe UI", 14f, FontStyle.Bold))
-                using (SolidBrush text = new SolidBrush(Color.White))
-                    g.DrawString("S", font, text, 7, 3);
+                pressed = true;
+                Invalidate();
             }
-            return Icon.FromHandle(bmp.GetHicon());
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                pressed = false;
+                Invalidate();
+            }
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            Invalidate();
+            base.OnEnabledChanged(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.Clear(Parent == null ? BackColor : Parent.BackColor);
+
+            Rectangle face = new Rectangle(3, 2, Width - Shadow - 8, Height - Shadow - 8);
+            if (face.Width < 8 || face.Height < 8)
+                return;
+
+            Color fill = FaceColor;
+            if (!Enabled)
+                fill = Blend(FaceColor, Color.FromArgb(48, 52, 60), 0.55f);
+            else if (pressed)
+                fill = PressedColor;
+            else if (hover)
+                fill = HoverColor;
+
+            for (int layer = Shadow; layer >= 1; layer--)
+            {
+                Rectangle shadow = face;
+                shadow.Offset(2 + layer / 3, 3 + layer);
+                int alpha = 36 + (Shadow - layer) * 14;
+                using (GraphicsPath path = RoundRect(shadow, Radius))
+                using (SolidBrush brush = new SolidBrush(Color.FromArgb(Math.Min(alpha, 210), 0, 0, 0)))
+                    g.FillPath(brush, path);
+            }
+
+            using (GraphicsPath path = RoundRect(face, Radius))
+            {
+                Color top = Lighten(fill, pressed ? 8 : 32);
+                using (LinearGradientBrush brush = new LinearGradientBrush(face, top, fill, LinearGradientMode.Vertical))
+                    g.FillPath(brush, path);
+                Color edge = isDefault || hover ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(45, 255, 255, 255);
+                using (Pen pen = new Pen(edge, 1f))
+                    g.DrawPath(pen, path);
+            }
+
+            TextRenderer.DrawText(
+                g,
+                Text,
+                Font,
+                face,
+                Enabled ? ForeColor : Color.FromArgb(170, 176, 186),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+
+        static GraphicsPath RoundRect(Rectangle bounds, int radius)
+        {
+            int diameter = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        static Color Lighten(Color color, int amount)
+        {
+            return Color.FromArgb(
+                color.A,
+                Math.Min(255, color.R + amount),
+                Math.Min(255, color.G + amount),
+                Math.Min(255, color.B + amount));
+        }
+
+        static Color Blend(Color from, Color to, float amount)
+        {
+            return Color.FromArgb(
+                (int)(from.R + (to.R - from.R) * amount),
+                (int)(from.G + (to.G - from.G) * amount),
+                (int)(from.B + (to.B - from.B) * amount));
         }
     }
 
@@ -1592,6 +1734,9 @@ namespace MSFS2024Start
 
     static class Native
     {
+        public const int DWMWA_BORDER_COLOR = 34;
+        public const int DWMWA_CAPTION_COLOR = 35;
+        public const int DWMWA_TEXT_COLOR = 36;
         public const int WH_MOUSE_LL = 14;
         public const int WM_MOUSEMOVE = 0x0200;
         public const int WM_LBUTTONDOWN = 0x0201;
@@ -1653,6 +1798,9 @@ namespace MSFS2024Start
             [FieldOffset(8)]
             public MOUSEINPUT mi;
         }
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
         [DllImport("user32.dll")]
         static extern bool SetProcessDpiAwarenessContext(IntPtr value);

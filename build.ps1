@@ -1,5 +1,7 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$icon = Join-Path $root "assets\controller.ico"
+& (Join-Path $root "assets\make-icon.ps1")
 $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $fx = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319"
 $meta = Join-Path $env:WINDIR "System32\WinMetadata"
@@ -22,6 +24,6 @@ $refs = @(
     (Join-Path $meta "Windows.UI.winmd")
 )
 $refArgs = $refs | ForEach-Object { "/reference:$_" }
-& $csc /nologo /target:winexe /platform:x64 /optimize+ "/out:$root\bin\MSFS2024Start.exe" @refArgs "$root\src\MSFS2024Start.cs"
+& $csc /nologo /target:winexe /platform:x64 /optimize+ "/win32icon:$icon" "/resource:$icon,MSFS2024Start.controller.ico" "/out:$root\bin\MSFS2024Start.exe" @refArgs "$root\src\MSFS2024Start.cs"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "Built $root\bin\MSFS2024Start.exe"
