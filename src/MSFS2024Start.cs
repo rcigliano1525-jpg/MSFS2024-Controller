@@ -120,10 +120,11 @@ namespace MSFS2024Start
         public MainForm()
         {
             Text = "MSFS2024 Controller";
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
             StartPosition = FormStartPosition.Manual;
             ClientSize = new Size(656, 328);
+            MinimumSize = new Size(520, 280);
             BackColor = Color.FromArgb(128, 132, 138);
             DoubleBuffered = true;
             ForeColor = Color.FromArgb(28, 30, 34);
@@ -206,6 +207,52 @@ namespace MSFS2024Start
             SetIdleStatus();
             ApplyStartupHook();
             KeyPreview = true;
+            LayoutContents();
+        }
+
+        void LayoutContents()
+        {
+            if (startButton == null)
+                return;
+
+            const int buttonWidth = 296;
+            const int buttonHeight = 76;
+            const int gapX = 16;
+            const int gapY = 10;
+            const int header = 90;
+            const int footer = 52;
+
+            int availW = Math.Max(1, ClientSize.Width - 48);
+            int availH = Math.Max(1, ClientSize.Height - header - footer);
+            int gridW = buttonWidth * 2 + gapX;
+            int gridH = buttonHeight * 2 + gapY;
+            double scale = Math.Min(availW / (double)gridW, availH / (double)gridH);
+
+            int bw = Math.Max(1, (int)Math.Round(buttonWidth * scale));
+            int bh = Math.Max(1, (int)Math.Round(bw * (buttonHeight / (double)buttonWidth)));
+            int gx = Math.Max(8, (int)Math.Round(gapX * scale));
+            int gy = Math.Max(6, (int)Math.Round(gapY * scale));
+            int totalW = bw * 2 + gx;
+            int totalH = bh * 2 + gy;
+            int originX = Math.Max(12, (ClientSize.Width - totalW) / 2);
+            int originY = header + Math.Max(0, (availH - totalH) / 2);
+
+            introLabel.SetBounds(24, 16, Math.Max(40, ClientSize.Width - 48), 40);
+            statusLabel.SetBounds(24, 56, Math.Max(40, ClientSize.Width - 48), 32);
+            startButton.SetBounds(originX, originY, bw, bh);
+            flightButton.SetBounds(originX + bw + gx, originY, bw, bh);
+            readyButton.SetBounds(originX, originY + bh + gy, bw, bh);
+            quitButton.SetBounds(originX + bw + gx, originY + bh + gy, bw, bh);
+
+            int footY = ClientSize.Height - 40;
+            hookBox.SetBounds(24, footY, Math.Max(160, ClientSize.Width / 2), 28);
+            alignLink.SetBounds(ClientSize.Width / 2, footY + 4, Math.Max(80, ClientSize.Width / 2 - 24), 22);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            LayoutContents();
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -226,11 +273,12 @@ namespace MSFS2024Start
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            PlaceOnSimScreen();
+            RestoreWindow();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            RememberWindow();
             if (!reallyExit && SimScreen.IsRunning())
             {
                 e.Cancel = true;
@@ -259,10 +307,11 @@ namespace MSFS2024Start
         public void ShowFromTray()
         {
             ShowInTaskbar = true;
+            FormWindowState state = WindowState;
             Show();
-            WindowState = FormWindowState.Normal;
+            if (state == FormWindowState.Minimized)
+                WindowState = settings.WindowMaximized ? FormWindowState.Maximized : FormWindowState.Normal;
             TopMost = true;
-            PlaceOnSimScreen();
             Activate();
         }
 
@@ -289,6 +338,80 @@ namespace MSFS2024Start
                     area = Screen.FromRectangle(client).WorkingArea;
             }
             Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + 36);
+        }
+
+        void RememberWindow()
+        {
+            Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            if (bounds.Width < 50 || bounds.Height < 50)
+                bounds = Bounds;
+            if (bounds.Width < 50 || bounds.Height < 50)
+                return;
+
+            Screen screen = Screen.FromRectangle(bounds);
+            settings.HasWindow = true;
+            settings.WindowMaximized = WindowState == FormWindowState.Maximized;
+            settings.Monitor = screen.DeviceName;
+            settings.WindowX = bounds.Left - screen.Bounds.Left;
+            settings.WindowY = bounds.Top - screen.Bounds.Top;
+            settings.WindowW = bounds.Width;
+            settings.WindowH = bounds.Height;
+            try
+            {
+                settings.Save();
+            }
+            catch (Exception ex)
+            {
+                Log.Write(ex.ToString());
+            }
+        }
+
+        void RestoreWindow()
+        {
+            if (!settings.HasWindow)
+            {
+                PlaceOnSimScreen();
+                return;
+            }
+
+            Screen screen = Screen.PrimaryScreen;
+            foreach (Screen candidate in Screen.AllScreens)
+            {
+                if (string.Equals(candidate.DeviceName, settings.Monitor, StringComparison.OrdinalIgnoreCase))
+                {
+                    screen = candidate;
+                    break;
+                }
+            }
+
+            int width = settings.WindowW;
+            int height = settings.WindowH;
+            if (width < MinimumSize.Width)
+                width = MinimumSize.Width;
+            if (height < MinimumSize.Height)
+                height = MinimumSize.Height;
+
+            Rectangle work = screen.WorkingArea;
+            if (width > work.Width)
+                width = work.Width;
+            if (height > work.Height)
+                height = work.Height;
+
+            int x = screen.Bounds.Left + settings.WindowX;
+            int y = screen.Bounds.Top + settings.WindowY;
+            if (x < work.Left)
+                x = work.Left;
+            if (y < work.Top)
+                y = work.Top;
+            if (x + width > work.Right)
+                x = Math.Max(work.Left, work.Right - width);
+            if (y + height > work.Bottom)
+                y = Math.Max(work.Top, work.Bottom - height);
+
+            WindowState = FormWindowState.Normal;
+            SetBounds(x, y, width, height);
+            if (settings.WindowMaximized)
+                WindowState = FormWindowState.Maximized;
         }
 
         void ApplyStartupHook()
@@ -1026,8 +1149,8 @@ namespace MSFS2024Start
         {
             RoundButton button = new RoundButton();
             button.Text = text;
+            button.BaseFontSize = fontSize;
             button.SetBounds(x, y, width, height);
-            button.Font = new Font("Segoe UI", fontSize, FontStyle.Bold);
             button.FaceColor = face;
             button.HoverColor = hover;
             button.PressedColor = pressed;
@@ -1052,10 +1175,12 @@ namespace MSFS2024Start
         bool hover;
         bool pressed;
         bool isDefault;
+        Font ownedFont;
 
         public Color FaceColor = Color.FromArgb(0, 122, 204);
         public Color HoverColor = Color.FromArgb(32, 152, 232);
         public Color PressedColor = Color.FromArgb(0, 96, 168);
+        public float BaseFontSize;
         public DialogResult DialogResult { get; set; }
 
         public RoundButton()
@@ -1064,6 +1189,21 @@ namespace MSFS2024Start
             Cursor = Cursors.Hand;
             ForeColor = Color.White;
             BackColor = Color.FromArgb(128, 132, 138);
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            if (BaseFontSize <= 0 || Height <= 0)
+                return;
+            float size = Math.Max(8f, BaseFontSize * Height / 76f);
+            if (ownedFont != null && Math.Abs(ownedFont.SizeInPoints - size) < 0.4f)
+                return;
+            Font next = new Font("Segoe UI", size, FontStyle.Bold);
+            Font = next;
+            if (ownedFont != null)
+                ownedFont.Dispose();
+            ownedFont = next;
         }
 
         public void NotifyDefault(bool value)
@@ -1676,6 +1816,13 @@ namespace MSFS2024Start
         public double StartY = 0.95;
         public double QuitX = 0.20;
         public double QuitY = 0.95;
+        public bool HasWindow;
+        public bool WindowMaximized;
+        public int WindowX;
+        public int WindowY;
+        public int WindowW;
+        public int WindowH;
+        public string Monitor = "";
 
         static string FilePath
         {
@@ -1714,6 +1861,20 @@ namespace MSFS2024Start
                     settings.QuitX = Parse(value, settings.QuitX);
                 else if (key == "quitY")
                     settings.QuitY = Parse(value, settings.QuitY);
+                else if (key == "hasWindow")
+                    settings.HasWindow = value == "1";
+                else if (key == "windowMax")
+                    settings.WindowMaximized = value == "1";
+                else if (key == "windowX")
+                    settings.WindowX = ParseInt(value, settings.WindowX);
+                else if (key == "windowY")
+                    settings.WindowY = ParseInt(value, settings.WindowY);
+                else if (key == "windowW")
+                    settings.WindowW = ParseInt(value, settings.WindowW);
+                else if (key == "windowH")
+                    settings.WindowH = ParseInt(value, settings.WindowH);
+                else if (key == "monitor")
+                    settings.Monitor = value;
             }
             return settings;
         }
@@ -1729,7 +1890,22 @@ namespace MSFS2024Start
             text.AppendLine("startY=" + StartY.ToString("0.0000"));
             text.AppendLine("quitX=" + QuitX.ToString("0.0000"));
             text.AppendLine("quitY=" + QuitY.ToString("0.0000"));
+            text.AppendLine("hasWindow=" + (HasWindow ? "1" : "0"));
+            text.AppendLine("windowMax=" + (WindowMaximized ? "1" : "0"));
+            text.AppendLine("windowX=" + WindowX.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            text.AppendLine("windowY=" + WindowY.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            text.AppendLine("windowW=" + WindowW.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            text.AppendLine("windowH=" + WindowH.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            text.AppendLine("monitor=" + Monitor);
             File.WriteAllText(FilePath, text.ToString());
+        }
+
+        static int ParseInt(string value, int fallback)
+        {
+            int parsed;
+            if (int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out parsed))
+                return parsed;
+            return fallback;
         }
 
         static double Parse(string value, double fallback)
