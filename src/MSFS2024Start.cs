@@ -113,6 +113,12 @@ namespace MSFS2024Start
         bool wasRunning;
         int goneTicks;
         bool reallyExit;
+        bool placeArmed;
+        bool placingWindow;
+        int placeLeft;
+        int placeTop;
+        int placeWidth;
+        int placeHeight;
         DateTime statusHoldUntil;
         IntPtr mouseHook;
         Native.LowLevelMouseProc mouseProc;
@@ -274,6 +280,19 @@ namespace MSFS2024Start
         {
             base.OnShown(e);
             RestoreWindow();
+            BeginInvoke(new Action(delegate
+            {
+                if (WindowState == FormWindowState.Normal)
+                    ApplyPlacement();
+                placeArmed = false;
+            }));
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == 0x02E0 && placeArmed && WindowState == FormWindowState.Normal)
+                ApplyPlacement();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -342,20 +361,35 @@ namespace MSFS2024Start
 
         void RememberWindow()
         {
-            Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-            if (bounds.Width < 50 || bounds.Height < 50)
-                bounds = Bounds;
-            if (bounds.Width < 50 || bounds.Height < 50)
+            Rectangle outer = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            if (outer.Width < 50 || outer.Height < 50)
+                outer = Bounds;
+            if (outer.Width < 50 || outer.Height < 50)
                 return;
 
-            Screen screen = Screen.FromRectangle(bounds);
+            int saveX = outer.Left;
+            int saveY = outer.Top;
+            bool visibleEdge = false;
+            if (WindowState == FormWindowState.Normal)
+            {
+                Rectangle visible = VisibleFrame();
+                if (visible.Width > 40 && visible.Height > 40)
+                {
+                    saveX = visible.Left;
+                    saveY = visible.Top;
+                    visibleEdge = true;
+                }
+            }
+
+            Screen screen = Screen.FromRectangle(outer);
             settings.HasWindow = true;
             settings.WindowMaximized = WindowState == FormWindowState.Maximized;
+            settings.WindowVisible = visibleEdge;
             settings.Monitor = screen.DeviceName;
-            settings.WindowX = bounds.Left - screen.Bounds.Left;
-            settings.WindowY = bounds.Top - screen.Bounds.Top;
-            settings.WindowW = bounds.Width;
-            settings.WindowH = bounds.Height;
+            settings.WindowX = saveX - screen.Bounds.Left;
+            settings.WindowY = saveY - screen.Bounds.Top;
+            settings.WindowW = outer.Width;
+            settings.WindowH = outer.Height;
             try
             {
                 settings.Save();
@@ -384,6 +418,12 @@ namespace MSFS2024Start
                 }
             }
 
+            int insetLeft;
+            int insetTop;
+            int insetRight;
+            int insetBottom;
+            MeasureInset(out insetLeft, out insetTop, out insetRight, out insetBottom);
+
             int width = settings.WindowW;
             int height = settings.WindowH;
             if (width < MinimumSize.Width)
@@ -391,27 +431,102 @@ namespace MSFS2024Start
             if (height < MinimumSize.Height)
                 height = MinimumSize.Height;
 
+            int visibleLeft = screen.Bounds.Left + settings.WindowX;
+            int visibleTop = screen.Bounds.Top + settings.WindowY;
+            if (!settings.WindowVisible)
+            {
+                visibleLeft += insetLeft;
+                visibleTop += insetTop;
+            }
+
+            int visibleWidth = Math.Max(1, width - insetLeft - insetRight);
+            int visibleHeight = Math.Max(1, height - insetTop - insetBottom);
             Rectangle work = screen.WorkingArea;
-            if (width > work.Width)
-                width = work.Width;
-            if (height > work.Height)
-                height = work.Height;
+            if (visibleWidth > work.Width)
+            {
+                visibleWidth = work.Width;
+                width = visibleWidth + insetLeft + insetRight;
+            }
+            if (visibleHeight > work.Height)
+            {
+                visibleHeight = work.Height;
+                height = visibleHeight + insetTop + insetBottom;
+            }
+            if (visibleLeft < work.Left)
+                visibleLeft = work.Left;
+            if (visibleTop < work.Top)
+                visibleTop = work.Top;
+            if (visibleLeft + visibleWidth > work.Right)
+                visibleLeft = Math.Max(work.Left, work.Right - visibleWidth);
+            if (visibleTop + visibleHeight > work.Bottom)
+                visibleTop = Math.Max(work.Top, work.Bottom - visibleHeight);
 
-            int x = screen.Bounds.Left + settings.WindowX;
-            int y = screen.Bounds.Top + settings.WindowY;
-            if (x < work.Left)
-                x = work.Left;
-            if (y < work.Top)
-                y = work.Top;
-            if (x + width > work.Right)
-                x = Math.Max(work.Left, work.Right - width);
-            if (y + height > work.Bottom)
-                y = Math.Max(work.Top, work.Bottom - height);
-
+            placeLeft = visibleLeft;
+            placeTop = visibleTop;
+            placeWidth = width;
+            placeHeight = height;
+            placeArmed = true;
             WindowState = FormWindowState.Normal;
-            SetBounds(x, y, width, height);
+            ApplyPlacement();
             if (settings.WindowMaximized)
                 WindowState = FormWindowState.Maximized;
+        }
+
+        void ApplyPlacement()
+        {
+            if (!placeArmed || placingWindow || !IsHandleCreated)
+                return;
+
+            placingWindow = true;
+            try
+            {
+                int insetLeft;
+                int insetTop;
+                int insetRight;
+                int insetBottom;
+                MeasureInset(out insetLeft, out insetTop, out insetRight, out insetBottom);
+                SetBounds(placeLeft - insetLeft, placeTop - insetTop, placeWidth, placeHeight);
+                Rectangle visible = VisibleFrame();
+                int dx = placeLeft - visible.Left;
+                int dy = placeTop - visible.Top;
+                if (dx != 0 || dy != 0)
+                    SetBounds(Bounds.Left + dx, Bounds.Top + dy, placeWidth, placeHeight);
+            }
+            finally
+            {
+                placingWindow = false;
+            }
+        }
+
+        void MeasureInset(out int left, out int top, out int right, out int bottom)
+        {
+            left = 0;
+            top = 0;
+            right = 0;
+            bottom = 0;
+            if (!IsHandleCreated)
+                return;
+
+            Native.RECT frame;
+            if (Native.DwmGetWindowAttribute(Handle, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out frame, System.Runtime.InteropServices.Marshal.SizeOf(typeof(Native.RECT))) != 0)
+                return;
+
+            Rectangle outer = Bounds;
+            left = Math.Max(0, frame.Left - outer.Left);
+            top = Math.Max(0, frame.Top - outer.Top);
+            right = Math.Max(0, outer.Right - frame.Right);
+            bottom = Math.Max(0, outer.Bottom - frame.Bottom);
+        }
+
+        Rectangle VisibleFrame()
+        {
+            if (!IsHandleCreated)
+                return Bounds;
+
+            Native.RECT frame;
+            if (Native.DwmGetWindowAttribute(Handle, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out frame, System.Runtime.InteropServices.Marshal.SizeOf(typeof(Native.RECT))) != 0)
+                return Bounds;
+            return Rectangle.FromLTRB(frame.Left, frame.Top, frame.Right, frame.Bottom);
         }
 
         void ApplyStartupHook()
@@ -1817,6 +1932,7 @@ namespace MSFS2024Start
         public double QuitX = 0.20;
         public double QuitY = 0.95;
         public bool HasWindow;
+        public bool WindowVisible;
         public bool WindowMaximized;
         public int WindowX;
         public int WindowY;
@@ -1863,6 +1979,8 @@ namespace MSFS2024Start
                     settings.QuitY = Parse(value, settings.QuitY);
                 else if (key == "hasWindow")
                     settings.HasWindow = value == "1";
+                else if (key == "windowVisible")
+                    settings.WindowVisible = value == "1";
                 else if (key == "windowMax")
                     settings.WindowMaximized = value == "1";
                 else if (key == "windowX")
@@ -1891,6 +2009,7 @@ namespace MSFS2024Start
             text.AppendLine("quitX=" + QuitX.ToString("0.0000"));
             text.AppendLine("quitY=" + QuitY.ToString("0.0000"));
             text.AppendLine("hasWindow=" + (HasWindow ? "1" : "0"));
+            text.AppendLine("windowVisible=" + (WindowVisible ? "1" : "0"));
             text.AppendLine("windowMax=" + (WindowMaximized ? "1" : "0"));
             text.AppendLine("windowX=" + WindowX.ToString(System.Globalization.CultureInfo.InvariantCulture));
             text.AppendLine("windowY=" + WindowY.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -1941,6 +2060,7 @@ namespace MSFS2024Start
 
     static class Native
     {
+        public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
         public const int DWMWA_BORDER_COLOR = 34;
         public const int DWMWA_CAPTION_COLOR = 35;
         public const int DWMWA_TEXT_COLOR = 36;
@@ -2008,6 +2128,9 @@ namespace MSFS2024Start
 
         [DllImport("dwmapi.dll")]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT bounds, int boundsSize);
 
         [DllImport("user32.dll")]
         static extern bool SetProcessDpiAwarenessContext(IntPtr value);
