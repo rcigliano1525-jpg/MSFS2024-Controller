@@ -99,6 +99,7 @@ namespace MSFS2024Start
         readonly RoundButton flightButton;
         readonly RoundButton readyButton;
         readonly RoundButton quitButton;
+        readonly DigitalClock clockDisplay;
         readonly CheckBox hookBox;
         readonly CheckBox schemeBox;
         readonly LinkLabel alignLink;
@@ -133,8 +134,8 @@ namespace MSFS2024Start
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
             StartPosition = FormStartPosition.Manual;
-            ClientSize = new Size(656, 328);
-            MinimumSize = new Size(520, 280);
+            ClientSize = new Size(656, 388);
+            MinimumSize = new Size(520, 340);
             BackColor = Color.FromArgb(128, 132, 138);
             DoubleBuffered = true;
             ForeColor = Color.FromArgb(28, 30, 34);
@@ -146,13 +147,13 @@ namespace MSFS2024Start
             introLabel = new Label();
             introLabel.Text = IntroText;
             introLabel.ForeColor = Color.FromArgb(28, 30, 34);
-            introLabel.Font = new Font("Segoe UI", 9.5f);
-            introLabel.SetBounds(24, 16, 608, 40);
+            introLabel.Font = new Font("Segoe UI", 12f);
+            introLabel.SetBounds(24, 16, 608, 52);
 
             statusLabel = new Label();
             statusLabel.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
             statusLabel.ForeColor = Color.FromArgb(28, 30, 34);
-            statusLabel.SetBounds(24, 56, 608, 32);
+            statusLabel.SetBounds(24, 70, 608, 32);
 
             startButton = MakeButton("Start", 24, 98, 296, 76, 16f, Color.FromArgb(0, 122, 204), Color.FromArgb(32, 152, 232), Color.FromArgb(0, 96, 168));
             flightButton = MakeButton("Start Flight", 336, 98, 296, 76, 15f, Color.FromArgb(0, 122, 204), Color.FromArgb(32, 152, 232), Color.FromArgb(0, 96, 168));
@@ -163,6 +164,9 @@ namespace MSFS2024Start
             readyButton.Click += OnReadyClicked;
             quitButton.Click += OnQuitClicked;
             AcceptButton = startButton;
+
+            clockDisplay = new DigitalClock();
+            clockDisplay.ShowTime(DateTime.Now);
 
             hookBox = new CheckBox();
             hookBox.Text = "Open when MSFS 2024 starts";
@@ -197,6 +201,7 @@ namespace MSFS2024Start
             Controls.Add(flightButton);
             Controls.Add(readyButton);
             Controls.Add(quitButton);
+            Controls.Add(clockDisplay);
             Controls.Add(hookBox);
             Controls.Add(schemeBox);
             Controls.Add(alignLink);
@@ -242,11 +247,12 @@ namespace MSFS2024Start
             const int buttonHeight = 76;
             const int gapX = 16;
             const int gapY = 10;
-            const int header = 90;
+            const int header = 108;
+            const int clockBand = 50;
             const int footer = 52;
 
             int availW = Math.Max(1, ClientSize.Width - 48);
-            int availH = Math.Max(1, ClientSize.Height - header - footer);
+            int availH = Math.Max(1, ClientSize.Height - header - clockBand - footer);
             int gridW = buttonWidth * 2 + gapX;
             int gridH = buttonHeight * 2 + gapY;
             double scale = Math.Min(availW / (double)gridW, availH / (double)gridH);
@@ -260,12 +266,20 @@ namespace MSFS2024Start
             int originX = Math.Max(12, (ClientSize.Width - totalW) / 2);
             int originY = header + Math.Max(0, (availH - totalH) / 2);
 
-            introLabel.SetBounds(24, 16, Math.Max(40, ClientSize.Width - 48), 40);
-            statusLabel.SetBounds(24, 56, Math.Max(40, ClientSize.Width - 48), 32);
+            introLabel.SetBounds(24, 16, Math.Max(40, ClientSize.Width - 48), 52);
+            statusLabel.SetBounds(24, 70, Math.Max(40, ClientSize.Width - 48), 32);
             startButton.SetBounds(originX, originY, bw, bh);
             flightButton.SetBounds(originX + bw + gx, originY, bw, bh);
             readyButton.SetBounds(originX, originY + bh + gy, bw, bh);
             quitButton.SetBounds(originX + bw + gx, originY + bh + gy, bw, bh);
+
+            int clockH = 40;
+            int bandTop = originY + totalH;
+            int bandBottom = ClientSize.Height - footer;
+            int clockY = bandTop + Math.Max(0, (bandBottom - bandTop - clockH) / 2);
+            int clockW = Math.Min(280, Math.Max(200, totalW / 2));
+            int clockX = originX + (totalW - clockW) / 2;
+            clockDisplay.SetBounds(clockX, clockY, clockW, clockH);
 
             int footY = ClientSize.Height - 40;
             int linkWidth = 148;
@@ -668,6 +682,7 @@ namespace MSFS2024Start
 
         void OnTick(object sender, EventArgs e)
         {
+            clockDisplay.ShowTime(DateTime.Now);
             if (Visible)
                 TopMost = true;
 
@@ -1552,6 +1567,67 @@ namespace MSFS2024Start
                 (int)(from.R + (to.R - from.R) * amount),
                 (int)(from.G + (to.G - from.G) * amount),
                 (int)(from.B + (to.B - from.B) * amount));
+        }
+    }
+
+    sealed class DigitalClock : Control
+    {
+        string shown = "";
+
+        public DigitalClock()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Font = new Font("Consolas", 16f, FontStyle.Bold);
+            ForeColor = Color.FromArgb(120, 255, 176);
+            BackColor = Color.FromArgb(12, 14, 16);
+        }
+
+        public void ShowTime(DateTime time)
+        {
+            string next = time.ToString("h:mm:ss tt");
+            if (next == shown)
+                return;
+            shown = next;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            MainForm form = Parent as MainForm;
+            if (form != null)
+                form.PaintPanel(g, ClientRectangle, Left, Top);
+            else
+                g.Clear(Parent == null ? SystemColors.Control : Parent.BackColor);
+
+            Rectangle face = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
+            using (GraphicsPath path = Face(face, 8))
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(12, 14, 16)))
+                g.FillPath(brush, path);
+            using (GraphicsPath path = Face(face, 8))
+            using (Pen pen = new Pen(Color.FromArgb(80, 180, 255, 200)))
+                g.DrawPath(pen, path);
+
+            TextRenderer.DrawText(
+                g,
+                shown,
+                Font,
+                face,
+                ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+
+        static GraphicsPath Face(Rectangle bounds, int radius)
+        {
+            int diameter = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
         }
     }
 
