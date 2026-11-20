@@ -100,12 +100,16 @@ namespace MSFS2024Start
         readonly RoundButton readyButton;
         readonly RoundButton quitButton;
         readonly CheckBox hookBox;
+        readonly CheckBox schemeBox;
         readonly LinkLabel alignLink;
+        readonly Bitmap panelBitmap;
         readonly NotifyIcon tray;
         readonly System.Windows.Forms.Timer timer;
 
         Settings settings;
         bool suppressHook;
+        bool suppressScheme;
+        StatusKind shownStatus = StatusKind.Normal;
         bool busy;
         bool aligning;
         bool eatMouseUp;
@@ -137,6 +141,7 @@ namespace MSFS2024Start
             Font = new Font("Segoe UI", 10f);
             TopMost = true;
             Icon = MakeIcon();
+            panelBitmap = LoadPanelTexture();
 
             introLabel = new Label();
             introLabel.Text = IntroText;
@@ -179,6 +184,13 @@ namespace MSFS2024Start
             alignLink.TextAlign = ContentAlignment.MiddleRight;
             alignLink.Click += OnAlignClicked;
 
+            schemeBox = new CheckBox();
+            schemeBox.Text = "Panel texture";
+            schemeBox.ForeColor = Color.FromArgb(28, 30, 34);
+            schemeBox.BackColor = BackColor;
+            schemeBox.Font = new Font("Segoe UI", 9f);
+            schemeBox.CheckedChanged += OnSchemeChanged;
+
             Controls.Add(introLabel);
             Controls.Add(statusLabel);
             Controls.Add(startButton);
@@ -186,6 +198,7 @@ namespace MSFS2024Start
             Controls.Add(readyButton);
             Controls.Add(quitButton);
             Controls.Add(hookBox);
+            Controls.Add(schemeBox);
             Controls.Add(alignLink);
 
             tray = new NotifyIcon();
@@ -209,6 +222,10 @@ namespace MSFS2024Start
             timer.Start();
 
             wasRunning = SimScreen.IsRunning();
+            suppressScheme = true;
+            schemeBox.Checked = settings.PanelScheme;
+            suppressScheme = false;
+            ApplyScheme();
             RefreshButtons();
             SetIdleStatus();
             ApplyStartupHook();
@@ -251,8 +268,92 @@ namespace MSFS2024Start
             quitButton.SetBounds(originX + bw + gx, originY + bh + gy, bw, bh);
 
             int footY = ClientSize.Height - 40;
-            hookBox.SetBounds(24, footY, Math.Max(160, ClientSize.Width / 2), 28);
-            alignLink.SetBounds(ClientSize.Width / 2, footY + 4, Math.Max(80, ClientSize.Width / 2 - 24), 22);
+            int linkWidth = 148;
+            int schemeWidth = 128;
+            int linkX = Math.Max(24, ClientSize.Width - 24 - linkWidth);
+            int schemeX = Math.Max(24, linkX - 8 - schemeWidth);
+            alignLink.SetBounds(linkX, footY + 4, linkWidth, 22);
+            schemeBox.SetBounds(schemeX, footY, schemeWidth, 28);
+            hookBox.SetBounds(24, footY, Math.Max(80, schemeX - 32), 28);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (settings == null || !settings.PanelScheme || panelBitmap == null)
+            {
+                base.OnPaintBackground(e);
+                return;
+            }
+
+            using (TextureBrush brush = new TextureBrush(panelBitmap, WrapMode.Tile))
+                e.Graphics.FillRectangle(brush, ClientRectangle);
+        }
+
+        public void PaintPanel(Graphics g, Rectangle bounds, int originX, int originY)
+        {
+            if (settings == null || !settings.PanelScheme || panelBitmap == null)
+            {
+                g.Clear(BackColor);
+                return;
+            }
+
+            using (TextureBrush brush = new TextureBrush(panelBitmap, WrapMode.Tile))
+            {
+                brush.TranslateTransform(-originX, -originY);
+                g.FillRectangle(brush, bounds);
+            }
+        }
+
+        static Bitmap LoadPanelTexture()
+        {
+            Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MSFS2024Start.panel.png");
+            if (stream == null)
+                return null;
+            using (stream)
+            using (Image image = Image.FromStream(stream))
+                return new Bitmap(image);
+        }
+
+        void ApplyScheme()
+        {
+            bool panel = settings.PanelScheme && panelBitmap != null;
+            Color paper = panel ? Color.FromArgb(28, 28, 28) : Color.FromArgb(128, 132, 138);
+            Color ink = panel ? Color.FromArgb(236, 236, 232) : Color.FromArgb(28, 30, 34);
+            Color surface = panel ? Color.Transparent : paper;
+            BackColor = paper;
+            ForeColor = ink;
+            introLabel.ForeColor = ink;
+            introLabel.BackColor = surface;
+            statusLabel.BackColor = surface;
+            statusLabel.ForeColor = StatusColor(shownStatus);
+            hookBox.ForeColor = ink;
+            hookBox.BackColor = surface;
+            schemeBox.ForeColor = ink;
+            schemeBox.BackColor = surface;
+            alignLink.BackColor = surface;
+            alignLink.LinkColor = panel ? Color.FromArgb(170, 210, 245) : Color.FromArgb(130, 186, 232);
+            alignLink.VisitedLinkColor = alignLink.LinkColor;
+            Invalidate(true);
+        }
+
+        void OnSchemeChanged(object sender, EventArgs e)
+        {
+            if (suppressScheme)
+                return;
+
+            settings.PanelScheme = schemeBox.Checked;
+            settings.Save();
+            ApplyScheme();
+        }
+
+        Color StatusColor(StatusKind kind)
+        {
+            bool panel = settings != null && settings.PanelScheme && panelBitmap != null;
+            if (kind == StatusKind.Ok)
+                return panel ? Color.FromArgb(110, 230, 160) : Color.FromArgb(0, 96, 64);
+            if (kind == StatusKind.Warn)
+                return panel ? Color.FromArgb(255, 186, 80) : Color.FromArgb(140, 72, 0);
+            return panel ? Color.FromArgb(236, 236, 232) : Color.FromArgb(28, 30, 34);
         }
 
         protected override void OnResize(EventArgs e)
@@ -1234,18 +1335,16 @@ namespace MSFS2024Start
             quitButton.Enabled = running && !busy && !aligning;
             alignLink.Enabled = running && !busy && !aligning;
             hookBox.Enabled = !busy && !aligning;
+            schemeBox.Enabled = !busy && !aligning;
         }
 
         void SetStatus(string text, StatusKind kind, int holdSeconds)
         {
-            Color color = Color.FromArgb(28, 30, 34);
-            if (kind == StatusKind.Ok)
-                color = Color.FromArgb(0, 96, 64);
-            else if (kind == StatusKind.Warn)
-                color = Color.FromArgb(140, 72, 0);
+            Color color = StatusColor(kind);
 
             Action apply = delegate
             {
+                shownStatus = kind;
                 statusLabel.Text = text;
                 statusLabel.ForeColor = color;
                 statusHoldUntil = holdSeconds <= 0
@@ -1379,7 +1478,11 @@ namespace MSFS2024Start
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            g.Clear(Parent == null ? BackColor : Parent.BackColor);
+            MainForm form = Parent as MainForm;
+            if (form != null)
+                form.PaintPanel(g, ClientRectangle, Left, Top);
+            else
+                g.Clear(BackColor);
 
             Rectangle face = new Rectangle(3, 2, Width - Shadow - 8, Height - Shadow - 8);
             if (face.Width < 8 || face.Height < 8)
@@ -1932,6 +2035,7 @@ namespace MSFS2024Start
         public double QuitX = 0.20;
         public double QuitY = 0.95;
         public bool HasWindow;
+        public bool PanelScheme;
         public bool WindowVisible;
         public bool WindowMaximized;
         public int WindowX;
@@ -1979,6 +2083,8 @@ namespace MSFS2024Start
                     settings.QuitY = Parse(value, settings.QuitY);
                 else if (key == "hasWindow")
                     settings.HasWindow = value == "1";
+                else if (key == "panelScheme")
+                    settings.PanelScheme = value == "1";
                 else if (key == "windowVisible")
                     settings.WindowVisible = value == "1";
                 else if (key == "windowMax")
@@ -2009,6 +2115,7 @@ namespace MSFS2024Start
             text.AppendLine("quitX=" + QuitX.ToString("0.0000"));
             text.AppendLine("quitY=" + QuitY.ToString("0.0000"));
             text.AppendLine("hasWindow=" + (HasWindow ? "1" : "0"));
+            text.AppendLine("panelScheme=" + (PanelScheme ? "1" : "0"));
             text.AppendLine("windowVisible=" + (WindowVisible ? "1" : "0"));
             text.AppendLine("windowMax=" + (WindowMaximized ? "1" : "0"));
             text.AppendLine("windowX=" + WindowX.ToString(System.Globalization.CultureInfo.InvariantCulture));
