@@ -342,8 +342,9 @@ namespace MSFS2024Start
             else if (wasRunning)
             {
                 goneTicks++;
-                if (goneTicks >= 2)
+                if (goneTicks >= 3)
                 {
+                    Log.Write("Simulator window closed. Exiting.");
                     reallyExit = true;
                     Close();
                     return;
@@ -1227,7 +1228,7 @@ namespace MSFS2024Start
     {
         public static bool IsRunning()
         {
-            return System.Diagnostics.Process.GetProcessesByName("FlightSimulator2024").Length > 0;
+            return FindWindow() != IntPtr.Zero;
         }
 
         public static IntPtr FindWindow()
@@ -1239,8 +1240,9 @@ namespace MSFS2024Start
             {
                 try
                 {
+                    process.Refresh();
                     IntPtr hwnd = process.MainWindowHandle;
-                    if (hwnd == IntPtr.Zero)
+                    if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd))
                         continue;
                     Rectangle bounds = ClientBounds(hwnd);
                     int area = Math.Max(0, bounds.Width) * Math.Max(0, bounds.Height);
@@ -1836,6 +1838,9 @@ namespace MSFS2024Start
 
         [DllImport("user32.dll")]
         static extern bool SetProcessDPIAware();
+
+        [DllImport("user32.dll")]
+        public static extern bool IsWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
