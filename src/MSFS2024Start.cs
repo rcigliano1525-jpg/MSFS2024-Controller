@@ -92,6 +92,8 @@ namespace MSFS2024Start
     sealed class MainForm : Form
     {
         const string IntroText = "Start and Quit are for the opening screen. Start Flight and Ready to Fly continue a Free Flight.";
+        const string SpadPath = @"D:\Program Files\SPAD.neXt\SPAD.neXt.exe";
+        const int ResizeEdge = 6;
 
         readonly Label introLabel;
         readonly Label statusLabel;
@@ -99,6 +101,9 @@ namespace MSFS2024Start
         readonly RoundButton flightButton;
         readonly RoundButton readyButton;
         readonly RoundButton quitButton;
+        readonly RoundButton spadButton;
+        readonly CaptionButton minimizeButton;
+        readonly CaptionButton closeButton;
         readonly DigitalClock clockDisplay;
         readonly CheckBox hookBox;
         readonly CheckBox schemeBox;
@@ -131,11 +136,11 @@ namespace MSFS2024Start
         public MainForm()
         {
             Text = "MSFS2024 Controller";
-            FormBorderStyle = FormBorderStyle.Sizable;
-            MaximizeBox = true;
+            FormBorderStyle = FormBorderStyle.None;
+            MaximizeBox = false;
             StartPosition = FormStartPosition.Manual;
-            ClientSize = new Size(656, 388);
-            MinimumSize = new Size(520, 340);
+            ClientSize = new Size(656, 474);
+            MinimumSize = new Size(520, 420);
             BackColor = Color.FromArgb(128, 132, 138);
             DoubleBuffered = true;
             ForeColor = Color.FromArgb(28, 30, 34);
@@ -163,10 +168,21 @@ namespace MSFS2024Start
             flightButton.Click += OnFlightClicked;
             readyButton.Click += OnReadyClicked;
             quitButton.Click += OnQuitClicked;
+            spadButton = MakeButton("Start SPAD.neXt", 180, 270, 296, 76, 13f, Color.FromArgb(196, 32, 32), Color.FromArgb(224, 56, 56), Color.FromArgb(156, 20, 20));
+            spadButton.Click += OnSpadClicked;
             AcceptButton = startButton;
+
+            minimizeButton = new CaptionButton(false);
+            minimizeButton.Click += delegate { WindowState = FormWindowState.Minimized; };
+            closeButton = new CaptionButton(true);
+            closeButton.Click += delegate { Close(); };
 
             clockDisplay = new DigitalClock();
             clockDisplay.ShowTime(DateTime.Now);
+
+            introLabel.MouseDown += OnDragMouseDown;
+            statusLabel.MouseDown += OnDragMouseDown;
+            clockDisplay.MouseDown += OnDragMouseDown;
 
             hookBox = new CheckBox();
             hookBox.Text = "Open when MSFS 2024 starts";
@@ -201,6 +217,9 @@ namespace MSFS2024Start
             Controls.Add(flightButton);
             Controls.Add(readyButton);
             Controls.Add(quitButton);
+            Controls.Add(spadButton);
+            Controls.Add(minimizeButton);
+            Controls.Add(closeButton);
             Controls.Add(clockDisplay);
             Controls.Add(hookBox);
             Controls.Add(schemeBox);
@@ -215,6 +234,7 @@ namespace MSFS2024Start
             menu.Items.Add("Start Flight", null, delegate { OnFlightClicked(this, EventArgs.Empty); });
             menu.Items.Add("Ready to Fly", null, delegate { OnReadyClicked(this, EventArgs.Empty); });
             menu.Items.Add("Quit to Desktop", null, delegate { OnQuitClicked(this, EventArgs.Empty); });
+            menu.Items.Add("Start SPAD.neXt", null, delegate { OnSpadClicked(this, EventArgs.Empty); });
             menu.Items.Add("Exit", null, delegate { ExitHelper(); });
             tray.ContextMenuStrip = menu;
             tray.DoubleClick += delegate { ShowFromTray(); };
@@ -254,7 +274,7 @@ namespace MSFS2024Start
             int availW = Math.Max(1, ClientSize.Width - 48);
             int availH = Math.Max(1, ClientSize.Height - header - clockBand - footer);
             int gridW = buttonWidth * 2 + gapX;
-            int gridH = buttonHeight * 2 + gapY;
+            int gridH = buttonHeight * 3 + gapY * 2;
             double scale = Math.Min(availW / (double)gridW, availH / (double)gridH);
 
             int bw = Math.Max(1, (int)Math.Round(buttonWidth * scale));
@@ -262,16 +282,22 @@ namespace MSFS2024Start
             int gx = Math.Max(8, (int)Math.Round(gapX * scale));
             int gy = Math.Max(6, (int)Math.Round(gapY * scale));
             int totalW = bw * 2 + gx;
-            int totalH = bh * 2 + gy;
+            int totalH = bh * 3 + gy * 2;
             int originX = Math.Max(12, (ClientSize.Width - totalW) / 2);
             int originY = header + Math.Max(0, (availH - totalH) / 2);
 
-            introLabel.SetBounds(24, 16, Math.Max(40, ClientSize.Width - 48), 52);
+            const int captionW = 40;
+            const int captionH = 30;
+            closeButton.SetBounds(ClientSize.Width - captionW - 6, 6, captionW, captionH);
+            minimizeButton.SetBounds(ClientSize.Width - captionW * 2 - 6, 6, captionW, captionH);
+
+            introLabel.SetBounds(24, 16, Math.Max(40, ClientSize.Width - 48 - captionW * 2), 52);
             statusLabel.SetBounds(24, 70, Math.Max(40, ClientSize.Width - 48), 32);
             startButton.SetBounds(originX, originY, bw, bh);
             flightButton.SetBounds(originX + bw + gx, originY, bw, bh);
             readyButton.SetBounds(originX, originY + bh + gy, bw, bh);
             quitButton.SetBounds(originX + bw + gx, originY + bh + gy, bw, bh);
+            spadButton.SetBounds(originX + (totalW - bw) / 2, originY + (bh + gy) * 2, bw, bh);
 
             int clockH = 40;
             int bandTop = originY + totalH;
@@ -347,6 +373,8 @@ namespace MSFS2024Start
             alignLink.BackColor = surface;
             alignLink.LinkColor = panel ? Color.FromArgb(170, 210, 245) : Color.FromArgb(130, 186, 232);
             alignLink.VisitedLinkColor = alignLink.LinkColor;
+            minimizeButton.ForeColor = ink;
+            closeButton.ForeColor = ink;
             Invalidate(true);
         }
 
@@ -376,14 +404,91 @@ namespace MSFS2024Start
             LayoutContents();
         }
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.Style |= Native.WS_MINIMIZEBOX;
+                return cp;
+            }
+        }
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            int caption = ColorRef(Color.Black);
-            int text = ColorRef(Color.White);
-            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_CAPTION_COLOR, ref caption, 4);
-            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_TEXT_COLOR, ref text, 4);
-            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_BORDER_COLOR, ref caption, 4);
+            int border = ColorRef(Color.Black);
+            int corners = Native.DWMWCP_ROUND;
+            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref corners, 4);
+            Native.DwmSetWindowAttribute(Handle, Native.DWMWA_BORDER_COLOR, ref border, 4);
+        }
+
+        void OnDragMouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || WindowState != FormWindowState.Normal)
+                return;
+            Native.ReleaseCapture();
+            Native.SendMessage(Handle, Native.WM_NCLBUTTONDOWN, (IntPtr)Native.HTCAPTION, IntPtr.Zero);
+        }
+
+        int HitTest(Point client)
+        {
+            bool left = client.X < ResizeEdge;
+            bool right = client.X >= ClientSize.Width - ResizeEdge;
+            bool top = client.Y < ResizeEdge;
+            bool bottom = client.Y >= ClientSize.Height - ResizeEdge;
+            if (top && left)
+                return Native.HTTOPLEFT;
+            if (top && right)
+                return Native.HTTOPRIGHT;
+            if (bottom && left)
+                return Native.HTBOTTOMLEFT;
+            if (bottom && right)
+                return Native.HTBOTTOMRIGHT;
+            if (left)
+                return Native.HTLEFT;
+            if (right)
+                return Native.HTRIGHT;
+            if (top)
+                return Native.HTTOP;
+            if (bottom)
+                return Native.HTBOTTOM;
+            return Native.HTCAPTION;
+        }
+
+        void OnSpadClicked(object sender, EventArgs e)
+        {
+            if (!File.Exists(SpadPath))
+            {
+                SetStatus("SPAD.neXt was not found at " + SpadPath, StatusKind.Warn, 12);
+                return;
+            }
+
+            System.Diagnostics.Process[] running = System.Diagnostics.Process.GetProcessesByName("SPAD.neXt");
+            bool already = running.Length > 0;
+            foreach (System.Diagnostics.Process process in running)
+                process.Dispose();
+            if (already)
+            {
+                SetStatus("SPAD.neXt is already running.", StatusKind.Normal, 6);
+                return;
+            }
+
+            try
+            {
+                System.Diagnostics.ProcessStartInfo info = new System.Diagnostics.ProcessStartInfo(SpadPath);
+                info.WorkingDirectory = Path.GetDirectoryName(SpadPath);
+                info.UseShellExecute = true;
+                System.Diagnostics.Process started = System.Diagnostics.Process.Start(info);
+                if (started != null)
+                    started.Dispose();
+                SetStatus("Starting SPAD.neXt…", StatusKind.Ok, 8);
+            }
+            catch (Exception ex)
+            {
+                Log.Write(ex.ToString());
+                SetStatus("SPAD.neXt did not start: " + ex.Message, StatusKind.Warn, 12);
+            }
         }
 
         static int ColorRef(Color color)
@@ -406,6 +511,13 @@ namespace MSFS2024Start
         protected override void WndProc(ref Message m)
         {
             base.WndProc(ref m);
+            if (m.Msg == Native.WM_NCHITTEST && WindowState == FormWindowState.Normal && (int)m.Result == Native.HTCLIENT)
+            {
+                long packed = m.LParam.ToInt64();
+                Point screen = new Point((short)(packed & 0xFFFF), (short)((packed >> 16) & 0xFFFF));
+                m.Result = (IntPtr)HitTest(PointToClient(screen));
+                return;
+            }
             if (m.Msg == 0x02E0 && placeArmed && WindowState == FormWindowState.Normal)
                 ApplyPlacement();
         }
@@ -444,7 +556,7 @@ namespace MSFS2024Start
             FormWindowState state = WindowState;
             Show();
             if (state == FormWindowState.Minimized)
-                WindowState = settings.WindowMaximized ? FormWindowState.Maximized : FormWindowState.Normal;
+                WindowState = FormWindowState.Normal;
             TopMost = true;
             Activate();
         }
@@ -583,8 +695,6 @@ namespace MSFS2024Start
             placeArmed = true;
             WindowState = FormWindowState.Normal;
             ApplyPlacement();
-            if (settings.WindowMaximized)
-                WindowState = FormWindowState.Maximized;
         }
 
         void ApplyPlacement()
@@ -1348,6 +1458,7 @@ namespace MSFS2024Start
             flightButton.Enabled = running && !busy && !aligning;
             readyButton.Enabled = running && !busy && !aligning;
             quitButton.Enabled = running && !busy && !aligning;
+            spadButton.Enabled = !busy && !aligning;
             alignLink.Enabled = running && !busy && !aligning;
             hookBox.Enabled = !busy && !aligning;
             schemeBox.Enabled = !busy && !aligning;
@@ -1567,6 +1678,71 @@ namespace MSFS2024Start
                 (int)(from.R + (to.R - from.R) * amount),
                 (int)(from.G + (to.G - from.G) * amount),
                 (int)(from.B + (to.B - from.B) * amount));
+        }
+    }
+
+    sealed class CaptionButton : Control
+    {
+        readonly bool isClose;
+        bool hover;
+
+        public CaptionButton(bool close)
+        {
+            isClose = close;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);
+            Cursor = Cursors.Hand;
+            ForeColor = Color.FromArgb(28, 30, 34);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            hover = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            hover = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            MainForm form = Parent as MainForm;
+            if (form != null)
+                form.PaintPanel(g, ClientRectangle, Left, Top);
+            else
+                g.Clear(Parent == null ? SystemColors.Control : Parent.BackColor);
+
+            Color ink = ForeColor;
+            if (hover)
+            {
+                Color fill = isClose ? Color.FromArgb(196, 43, 28) : Color.FromArgb(60, 255, 255, 255);
+                using (SolidBrush brush = new SolidBrush(fill))
+                    g.FillRectangle(brush, ClientRectangle);
+                if (isClose)
+                    ink = Color.White;
+            }
+
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            int cx = Width / 2;
+            int cy = Height / 2;
+            using (Pen pen = new Pen(ink, 1.6f))
+            {
+                if (isClose)
+                {
+                    g.DrawLine(pen, cx - 5, cy - 5, cx + 5, cy + 5);
+                    g.DrawLine(pen, cx - 5, cy + 5, cx + 5, cy - 5);
+                }
+                else
+                {
+                    g.DrawLine(pen, cx - 6, cy, cx + 6, cy);
+                }
+            }
         }
     }
 
@@ -2244,6 +2420,21 @@ namespace MSFS2024Start
     static class Native
     {
         public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+        public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        public const int DWMWCP_ROUND = 2;
+        public const int WS_MINIMIZEBOX = 0x00020000;
+        public const int WM_NCHITTEST = 0x0084;
+        public const int WM_NCLBUTTONDOWN = 0x00A1;
+        public const int HTCLIENT = 1;
+        public const int HTCAPTION = 2;
+        public const int HTLEFT = 10;
+        public const int HTRIGHT = 11;
+        public const int HTTOP = 12;
+        public const int HTTOPLEFT = 13;
+        public const int HTTOPRIGHT = 14;
+        public const int HTBOTTOM = 15;
+        public const int HTBOTTOMLEFT = 16;
+        public const int HTBOTTOMRIGHT = 17;
         public const int DWMWA_BORDER_COLOR = 34;
         public const int DWMWA_CAPTION_COLOR = 35;
         public const int DWMWA_TEXT_COLOR = 36;
@@ -2323,6 +2514,9 @@ namespace MSFS2024Start
 
         [DllImport("user32.dll")]
         public static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool ReleaseCapture();
 
         [DllImport("user32.dll")]
         public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
