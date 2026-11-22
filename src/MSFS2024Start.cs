@@ -104,6 +104,9 @@ namespace MSFS2024Start
         readonly RoundButton spadButton;
         readonly CaptionButton minimizeButton;
         readonly CaptionButton closeButton;
+        readonly TitleStrip titleStrip;
+        readonly System.Windows.Forms.Timer revealTimer;
+        DateTime lastNearTop;
         readonly DigitalClock clockDisplay;
         readonly CheckBox hookBox;
         readonly CheckBox schemeBox;
@@ -172,10 +175,15 @@ namespace MSFS2024Start
             spadButton.Click += OnSpadClicked;
             AcceptButton = startButton;
 
+            titleStrip = new TitleStrip(Icon, Text);
+            titleStrip.Visible = false;
+            titleStrip.MouseDown += OnDragMouseDown;
             minimizeButton = new CaptionButton(false);
             minimizeButton.Click += delegate { WindowState = FormWindowState.Minimized; };
             closeButton = new CaptionButton(true);
             closeButton.Click += delegate { Close(); };
+            titleStrip.Controls.Add(minimizeButton);
+            titleStrip.Controls.Add(closeButton);
 
             clockDisplay = new DigitalClock();
             clockDisplay.ShowTime(DateTime.Now);
@@ -218,8 +226,7 @@ namespace MSFS2024Start
             Controls.Add(readyButton);
             Controls.Add(quitButton);
             Controls.Add(spadButton);
-            Controls.Add(minimizeButton);
-            Controls.Add(closeButton);
+            Controls.Add(titleStrip);
             Controls.Add(clockDisplay);
             Controls.Add(hookBox);
             Controls.Add(schemeBox);
@@ -245,6 +252,11 @@ namespace MSFS2024Start
             timer.Interval = 1000;
             timer.Tick += OnTick;
             timer.Start();
+
+            revealTimer = new System.Windows.Forms.Timer();
+            revealTimer.Interval = 60;
+            revealTimer.Tick += OnRevealTick;
+            revealTimer.Start();
 
             wasRunning = SimScreen.IsRunning();
             suppressScheme = true;
@@ -286,12 +298,13 @@ namespace MSFS2024Start
             int originX = Math.Max(12, (ClientSize.Width - totalW) / 2);
             int originY = header + Math.Max(0, (availH - totalH) / 2);
 
-            const int captionW = 40;
-            const int captionH = 30;
-            closeButton.SetBounds(ClientSize.Width - captionW - 6, 6, captionW, captionH);
-            minimizeButton.SetBounds(ClientSize.Width - captionW * 2 - 6, 6, captionW, captionH);
+            const int stripH = 34;
+            const int captionW = 44;
+            titleStrip.SetBounds(0, 0, ClientSize.Width, stripH);
+            closeButton.SetBounds(ClientSize.Width - captionW - ResizeEdge, ResizeEdge, captionW, stripH - ResizeEdge);
+            minimizeButton.SetBounds(ClientSize.Width - captionW * 2 - ResizeEdge, ResizeEdge, captionW, stripH - ResizeEdge);
 
-            introLabel.SetBounds(24, 16, Math.Max(40, ClientSize.Width - 48 - captionW * 2), 52);
+            introLabel.SetBounds(24, 16, Math.Max(40, ClientSize.Width - 48), 52);
             statusLabel.SetBounds(24, 70, Math.Max(40, ClientSize.Width - 48), 32);
             startButton.SetBounds(originX, originY, bw, bh);
             flightButton.SetBounds(originX + bw + gx, originY, bw, bh);
@@ -373,8 +386,6 @@ namespace MSFS2024Start
             alignLink.BackColor = surface;
             alignLink.LinkColor = panel ? Color.FromArgb(170, 210, 245) : Color.FromArgb(130, 186, 232);
             alignLink.VisitedLinkColor = alignLink.LinkColor;
-            minimizeButton.ForeColor = ink;
-            closeButton.ForeColor = ink;
             Invalidate(true);
         }
 
@@ -410,6 +421,7 @@ namespace MSFS2024Start
             {
                 CreateParams cp = base.CreateParams;
                 cp.Style |= Native.WS_MINIMIZEBOX;
+                cp.ExStyle |= Native.WS_EX_LAYERED;
                 return cp;
             }
         }
@@ -417,10 +429,39 @@ namespace MSFS2024Start
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            Native.SetLayeredWindowAttributes(Handle, 0, 255, Native.LWA_ALPHA);
             int border = ColorRef(Color.Black);
             int corners = Native.DWMWCP_ROUND;
             Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref corners, 4);
             Native.DwmSetWindowAttribute(Handle, Native.DWMWA_BORDER_COLOR, ref border, 4);
+        }
+
+        void OnRevealTick(object sender, EventArgs e)
+        {
+            if (!Visible || WindowState != FormWindowState.Normal)
+            {
+                if (titleStrip.Visible)
+                    titleStrip.Visible = false;
+                return;
+            }
+
+            Point cursor = Cursor.Position;
+            Rectangle bounds = Bounds;
+            bool nearTop = bounds.Contains(cursor) && cursor.Y < bounds.Top + titleStrip.Height + 8;
+            bool holding = titleStrip.Visible && (Control.MouseButtons & MouseButtons.Left) != 0;
+            if (nearTop || holding)
+            {
+                lastNearTop = DateTime.UtcNow;
+                if (!titleStrip.Visible)
+                {
+                    titleStrip.Visible = true;
+                    titleStrip.BringToFront();
+                }
+                return;
+            }
+
+            if (titleStrip.Visible && (DateTime.UtcNow - lastNearTop).TotalMilliseconds > 400)
+                titleStrip.Visible = false;
         }
 
         void OnDragMouseDown(object sender, MouseEventArgs e)
@@ -874,6 +915,7 @@ namespace MSFS2024Start
                 }
                 finally
                 {
+                    EndActionMode();
                     SetBusy(false);
                 }
             });
@@ -1155,17 +1197,45 @@ namespace MSFS2024Start
             SimScreen.Focus(hwnd);
             Invoke(new Action(delegate
             {
-                Hide();
-                Application.DoEvents();
+                if (!SetActionMode(true))
+                {
+                    Hide();
+                    Application.DoEvents();
+                }
             }));
             Thread.Sleep(220);
+        }
+
+        bool SetActionMode(bool on)
+        {
+            if (!IsHandleCreated)
+                return false;
+
+            long style = Native.GetWindowLongPtr(Handle, Native.GWL_EXSTYLE).ToInt64();
+            if (on)
+                style |= Native.WS_EX_TRANSPARENT;
+            else
+                style &= ~(long)Native.WS_EX_TRANSPARENT;
+            Native.SetWindowLongPtr(Handle, Native.GWL_EXSTYLE, new IntPtr(style));
+            return Native.SetWindowDisplayAffinity(Handle, on ? Native.WDA_EXCLUDEFROMCAPTURE : Native.WDA_NONE);
+        }
+
+        void EndActionMode()
+        {
+            if (IsDisposed)
+                return;
+            BeginInvoke(new Action(delegate { SetActionMode(false); }));
         }
 
         void ShowAgain()
         {
             if (IsDisposed)
                 return;
-            BeginInvoke(new Action(delegate { ShowFromTray(); }));
+            BeginInvoke(new Action(delegate
+            {
+                SetActionMode(false);
+                ShowFromTray();
+            }));
         }
 
         void HideAgain()
@@ -1681,6 +1751,58 @@ namespace MSFS2024Start
         }
     }
 
+    sealed class TitleStrip : Control
+    {
+        readonly Icon smallIcon;
+
+        public TitleStrip(Icon icon, string title)
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);
+            BackColor = Color.Black;
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9.5f);
+            Text = title;
+            if (icon != null)
+                smallIcon = new Icon(icon, 16, 16);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.Clear(BackColor);
+            int textLeft = 12;
+            if (smallIcon != null)
+            {
+                g.DrawIcon(smallIcon, new Rectangle(12, (Height - 16) / 2, 16, 16));
+                textLeft = 36;
+            }
+            TextRenderer.DrawText(
+                g,
+                Text,
+                Font,
+                new Rectangle(textLeft, 0, Math.Max(1, Width - textLeft - 110), Height),
+                ForeColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == Native.WM_NCHITTEST)
+            {
+                long packed = m.LParam.ToInt64();
+                Point point = PointToClient(new Point((short)(packed & 0xFFFF), (short)((packed >> 16) & 0xFFFF)));
+                int edge = 6;
+                if (point.Y < edge || point.X < edge || point.X >= Width - edge)
+                {
+                    m.Result = (IntPtr)Native.HTTRANSPARENT;
+                    return;
+                }
+            }
+            base.WndProc(ref m);
+        }
+    }
+
     sealed class CaptionButton : Control
     {
         readonly bool isClose;
@@ -1692,7 +1814,7 @@ namespace MSFS2024Start
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             SetStyle(ControlStyles.Selectable, false);
             Cursor = Cursors.Hand;
-            ForeColor = Color.FromArgb(28, 30, 34);
+            ForeColor = Color.White;
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -2423,8 +2545,15 @@ namespace MSFS2024Start
         public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         public const int DWMWCP_ROUND = 2;
         public const int WS_MINIMIZEBOX = 0x00020000;
+        public const int GWL_EXSTYLE = -20;
+        public const int WS_EX_TRANSPARENT = 0x00000020;
+        public const int WS_EX_LAYERED = 0x00080000;
+        public const uint LWA_ALPHA = 0x2;
+        public const uint WDA_NONE = 0x0;
+        public const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
         public const int WM_NCHITTEST = 0x0084;
         public const int WM_NCLBUTTONDOWN = 0x00A1;
+        public const int HTTRANSPARENT = -1;
         public const int HTCLIENT = 1;
         public const int HTCAPTION = 2;
         public const int HTLEFT = 10;
@@ -2517,6 +2646,18 @@ namespace MSFS2024Start
 
         [DllImport("user32.dll")]
         public static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
         [DllImport("user32.dll")]
         public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
